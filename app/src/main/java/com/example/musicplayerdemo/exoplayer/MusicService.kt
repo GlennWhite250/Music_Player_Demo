@@ -1,10 +1,13 @@
-package com.example.musicplayerdemo.exoplayer
+ package com.example.musicplayerdemo.exoplayer
 
 import android.app.PendingIntent
 import android.os.Bundle
 import android.support.v4.media.MediaBrowserCompat
+import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.media.MediaBrowserServiceCompat
+import com.example.musicplayerdemo.exoplayer.callbacks.MusicPlaybackPreparer
+import com.example.musicplayerdemo.exoplayer.callbacks.MusicPlayerEventListner
 import com.example.musicplayerdemo.exoplayer.callbacks.MusicPlayerNotificationListener
 import com.google.android.exoplayer2.SimpleExoPlayer
 import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector
@@ -27,6 +30,9 @@ class MusicService: MediaBrowserServiceCompat() {
     @Inject
     lateinit var exoPlayer: SimpleExoPlayer
 
+    @Inject
+    lateinit var firebaseMusicService: FirebaseMusicSource
+
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
 
@@ -36,6 +42,8 @@ class MusicService: MediaBrowserServiceCompat() {
     private lateinit var mediaSessionConnector: MediaSessionConnector
 
     var isForegroundService = false
+
+    private var curPlayingSong: MediaMetadataCompat? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -56,8 +64,32 @@ class MusicService: MediaBrowserServiceCompat() {
             MusicPlayerNotificationListener(this)
         ){}
 
+        val musicPlaybackPreparer = MusicPlaybackPreparer(firebaseMusicService) {
+            curPlayingSong = it
+            preparePlayer(
+                firebaseMusicService.songs,
+                it,
+                true
+            )
+        }
+
         mediaSessionConnector = MediaSessionConnector(mediaSession)
+        mediaSessionConnector.setPlaybackPreparer(musicPlaybackPreparer)
         mediaSessionConnector.setPlayer(exoPlayer)
+
+        exoPlayer.addListener(MusicPlayerEventListner(this))
+        musicNotificationManager.showNotification(exoPlayer)
+    }
+
+    private fun preparePlayer(
+        songs: List<MediaMetadataCompat>,
+        itemToPlay: MediaMetadataCompat?,
+        playNow: Boolean
+    ) {
+        val curSongIndex = if(curPlayingSong == null) 0 else songs.indexOf(itemToPlay)
+        exoPlayer.prepare(firebaseMusicService.asMediaSource(dataSourceFactory))
+        exoPlayer.seekTo(curSongIndex, 0L)
+        exoPlayer.playWhenReady = playNow
     }
 
     override fun onDestroy() {
